@@ -11,14 +11,13 @@
 #include <fstream>
 #include <filesystem>
 #include <cstdio>
+#include <iostream>
 
 class SuiteSparseDownloader
 {
 public:
 	struct MatrixFilter
 	{
-		std::string indexUrl = "https://sparse.tamu.edu/files/ssstats.csv";
-
 		std::optional<std::string> group;
 		std::optional<std::string> name;
 		std::optional<std::string> groupContains;
@@ -78,13 +77,13 @@ public:
 
 	std::vector<std::string> getMatrices(const MatrixFilter& filter)
 	{
-		std::string csvText = httpGetToString(filter.indexUrl);
+		std::string csvText = httpGetToString("https://sparse.tamu.edu/files/ssstats.csv");
 		std::vector<MatrixInfo> matrices = parseCSV(csvText);
 
 		std::vector<std::string> out;
 		out.reserve(matrices.size());
 
-		for (const auto& m : matrices)
+		for (const auto& m: matrices)
 		{
 			if (!matchesFilter(m, filter))
 			{
@@ -112,15 +111,55 @@ public:
 		std::vector<std::string> savedPaths;
 		savedPaths.reserve(links.size());
 
-		for (const std::string& url : links)
+		for (const std::string& url: links)
 		{
-			std::string fileName = fileNameFromUrl(url);
-			std::filesystem::path outPath = folderPath / fileName;
+			std::string fileNameTarGz = fileNameFromUrl(url);
+			std::filesystem::path tarPath = folderPath / fileNameTarGz;
 
-			httpGetToFile(url, outPath.string());
-
-			std::filesystem::path absPath = std::filesystem::absolute(outPath);
+			std::string baseName;
+			{
+				std::string tmp = fileNameTarGz;
+				std::string suffix = ".tar.gz";
+				if (tmp.size() >= suffix.size() && tmp.substr(tmp.size() - suffix.size()) == suffix)
+				{
+					baseName = tmp.substr(0, tmp.size() - suffix.size());
+				}
+				else
+				{
+					baseName = tmp;
+				}
+			}
+			std::filesystem::path mtxDestPath = folderPath / (baseName + ".mtx");
+			std::filesystem::path absPath = std::filesystem::absolute(mtxDestPath);
 			savedPaths.push_back(absPath.string());
+			if (std::filesystem::exists(absPath.string()))
+			{
+				continue;
+			}
+			httpGetToFile(url, tarPath.string());
+
+			std::string extractCmd = "tar -xvf \"" + tarPath.string() + "\" -C \"" + folderPath.string() + "\"";
+			int extractStatus = std::system(extractCmd.c_str());
+			if (extractStatus != 0)
+			{
+				throw std::runtime_error("tar extraction failed for " + tarPath.string());
+			}
+
+			std::filesystem::path extractedDirPath = folderPath / baseName;
+			std::filesystem::path mtxSourcePath = extractedDirPath / (baseName + ".mtx");
+
+			std::error_code ecMove;
+			std::filesystem::rename(mtxSourcePath, mtxDestPath, ecMove);
+			if (ecMove)
+			{
+				throw std::runtime_error("failed to move mtx file: " + ecMove.message());
+			}
+
+			std::error_code ecRmDir;
+			std::filesystem::remove_all(extractedDirPath, ecRmDir);
+
+			std::error_code ecRmTar;
+			std::filesystem::remove(tarPath, ecRmTar);
 		}
 
 		return savedPaths;
