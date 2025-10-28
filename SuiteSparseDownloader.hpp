@@ -31,6 +31,10 @@ public:
 		std::optional<unsigned long long> maxCols;
 		std::optional<unsigned long long> minNonzeros;
 		std::optional<unsigned long long> maxNonzeros;
+		std::optional<unsigned long long> minAverageNonzeroPerRow;
+		std::optional<unsigned long long> maxAverageNonzeroPerRow;
+		std::optional<unsigned long long> minAverageNonzeroPerCol;
+		std::optional<unsigned long long> maxAverageNonzeroPerCol;
 
 		std::optional<bool> isReal;
 		std::optional<bool> isBinary;
@@ -142,7 +146,7 @@ public:
 			}
 			httpGetToFile(url, tarPath.string());
 
-			std::string extractCmd = "tar -xvf \"" + tarPath.string() + "\" -C \"" + folderPath.string() + "\"";
+			std::string extractCmd = "tar -xvf \"" + tarPath.string() + "\" -C \"" + folderPath.string() + "\" > /dev/null 2>&1";
 			int extractStatus = std::system(extractCmd.c_str());
 			if (extractStatus != 0)
 			{
@@ -369,6 +373,26 @@ private:
 			return false;
 		}
 		if (f.maxNonzeros && m.nonzeros > *f.maxNonzeros)
+		{
+			return false;
+		}
+
+		unsigned long long averagePerRow = m.nonzeros / m.rows;
+		unsigned long long averagePerCol = m.nonzeros / m.cols;
+
+		if (f.minAverageNonzeroPerRow && averagePerRow < f.minAverageNonzeroPerRow)
+		{
+			return false;
+		}
+		if (f.maxAverageNonzeroPerRow && averagePerRow > f.maxAverageNonzeroPerRow)
+		{
+			return false;
+		}
+		if (f.minAverageNonzeroPerCol && averagePerCol < f.minAverageNonzeroPerCol)
+		{
+			return false;
+		}
+		if (f.maxAverageNonzeroPerCol && averagePerCol > f.maxAverageNonzeroPerCol)
 		{
 			return false;
 		}
