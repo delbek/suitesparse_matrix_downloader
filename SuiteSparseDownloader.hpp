@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <cstdio>
 #include <iostream>
+#include "omp.h"
 
 class SuiteSparseDownloader
 {
@@ -42,7 +43,6 @@ public:
 		std::optional<bool> isSquare;
 	};
 
-private:
 	struct MatrixInfo
 	{
 		unsigned id;
@@ -58,6 +58,9 @@ private:
 		double patternSymmetry;
 		double numericSymmetry;
 		std::string kind;
+		
+		std::string downloadLink;
+		std::string installationPath;
 	};
 
 public:
@@ -75,12 +78,12 @@ public:
 		curl_global_cleanup();
 	}
 
-	std::vector<std::string> getMatrices(const MatrixFilter& filter)
+	std::vector<MatrixInfo> getMatrices(const MatrixFilter& filter)
 	{
 		std::string csvText = httpGetToString("https://sparse.tamu.edu/files/ssstats.csv");
 		std::vector<MatrixInfo> matrices = parseCSV(csvText);
 
-		std::vector<std::string> out;
+		std::vector<MatrixInfo> out;
 		out.reserve(matrices.size());
 
 		for (const auto& m: matrices)
@@ -89,17 +92,18 @@ public:
 			{
 				continue;
 			}
-			out.push_back(buildDownloadLink(m));
+			out.emplace_back(m);
+			out.back().downloadLink = buildDownloadLink(out.back());
 		}
 
 		return out;
 	}
 
-	std::vector<std::string> downloadMatrices(const std::vector<std::string>& links, const std::string& downloadFolder)
+	void downloadMatrices(const std::string& downloadFolder, std::vector<MatrixInfo>& matrices)
 	{
-		if (links.empty())
+		if (matrices.empty())
 		{
-			return {};
+			return;
 		}
 
 		std::filesystem::path folderPath = downloadFolder;
@@ -108,11 +112,11 @@ public:
 			std::filesystem::create_directories(folderPath);
 		}
 
-		std::vector<std::string> savedPaths;
-		savedPaths.reserve(links.size());
-
-		for (const std::string& url: links)
+		#pragma omp parallel for num_threads(omp_get_max_threads())
+		for (unsigned i = 0; i < matrices.size(); ++i)
 		{
+			auto& matrix = matrices[i];
+			std::string url = matrix.downloadLink;
 			std::string fileNameTarGz = fileNameFromUrl(url);
 			std::filesystem::path tarPath = folderPath / fileNameTarGz;
 
@@ -131,7 +135,7 @@ public:
 			}
 			std::filesystem::path mtxDestPath = folderPath / (baseName + ".mtx");
 			std::filesystem::path absPath = std::filesystem::absolute(mtxDestPath);
-			savedPaths.push_back(absPath.string());
+			matrix.installationPath = absPath.string();
 			if (std::filesystem::exists(absPath.string()))
 			{
 				continue;
@@ -161,8 +165,6 @@ public:
 			std::error_code ecRmTar;
 			std::filesystem::remove(tarPath, ecRmTar);
 		}
-
-		return savedPaths;
 	}
 
 private:
