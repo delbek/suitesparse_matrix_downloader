@@ -317,8 +317,8 @@ private:
 			m.isBinary = (cols[6] == "1");
 			m.is2d3d = (cols[7] == "1");
 			m.isPosDef = (cols[8] == "1");
-			m.patternSymmetry = std::atof(cols[9].c_str());
-			m.numericSymmetry = std::atof(cols[10].c_str());
+			m.patternSymmetry = std::atof(cols[9].c_str()) == 1;
+			m.numericSymmetry = std::atof(cols[10].c_str()) == 1;
 			m.kind = cols[11];
 
 			matrices.push_back(m);
