@@ -8,6 +8,7 @@ int main()
     filter.maxRows = 50;
     filter.minAverageNonzeroPerRow = 5;
     filter.maxAverageNonzeroPerRow = 10;
+    filter.names = {"bcsstk01", "ex5"};
     auto matrices = downloader.getMatrices(filter);
     downloader.downloadMatrices("matrices/", matrices);
 

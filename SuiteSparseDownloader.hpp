@@ -21,9 +21,7 @@ public:
 	{
 		std::optional<std::string> group;
 		std::optional<std::string> name;
-		std::optional<std::string> groupContains;
-		std::optional<std::string> nameContains;
-		std::optional<std::string> kindContains;
+		std::optional<std::vector<std::string>> names;
 
 		std::optional<unsigned long long> minRows;
 		std::optional<unsigned long long> maxRows;
@@ -339,17 +337,22 @@ private:
 		{
 			return false;
 		}
-		if (f.groupContains && m.groupName.find(*f.groupContains) == std::string::npos)
+
+		if (f.names)
 		{
-			return false;
-		}
-		if (f.nameContains && m.name.find(*f.nameContains) == std::string::npos)
-		{
-			return false;
-		}
-		if (f.kindContains && m.kind.find(*f.kindContains) == std::string::npos)
-		{
-			return false;
+			bool found = false;
+			for (const auto& name: f.names.value())
+			{
+				if (m.name == name)
+				{
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+			{
+				return false;
+			}
 		}
 
 		if (f.minRows && m.rows < *f.minRows)
