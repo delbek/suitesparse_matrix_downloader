@@ -14,6 +14,7 @@ int main()
     downloader.downloadMatrices("matrices/", matrices);
     for (const auto& matrix: matrices)
     {
+        if (!matrix.isValid) continue;
         std::cout
             << "id: "               << matrix.id               << '\n'
             << "groupName: "        << matrix.groupName        << '\n'

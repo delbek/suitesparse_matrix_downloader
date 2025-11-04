@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <iostream>
 #include "omp.h"
+#include <unistd.h>
 
 class SuiteSparseDownloader
 {
@@ -47,6 +48,8 @@ public:
 
 	struct MatrixInfo
 	{
+		bool isValid;
+
 		unsigned id;
 		std::string groupName;
 		std::string name;
@@ -118,9 +121,10 @@ public:
 		for (unsigned i = 0; i < matrices.size(); ++i)
 		{
 			auto& matrix = matrices[i];
-			std::string url = matrix.downloadLink;
+			matrix.isValid = true;
+
+			const std::string& url = matrix.downloadLink;
 			std::string fileNameTarGz = fileNameFromUrl(url);
-			std::filesystem::path tarPath = folderPath / fileNameTarGz;
 
 			std::string baseName;
 			{
@@ -135,37 +139,111 @@ public:
 					baseName = tmp;
 				}
 			}
+
 			std::filesystem::path mtxDestPath = folderPath / (baseName + ".mtx");
 			std::filesystem::path absPath = std::filesystem::absolute(mtxDestPath);
 			matrix.installationPath = absPath.string();
-			if (std::filesystem::exists(absPath.string()))
+			if (std::filesystem::exists(absPath))
 			{
 				continue;
 			}
-			httpGetToFile(url, tarPath.string());
 
-			std::string extractCmd = "tar -xvf \"" + tarPath.string() + "\" -C \"" + folderPath.string() + "\" > /dev/null 2>&1";
-			int extractStatus = std::system(extractCmd.c_str());
-			if (extractStatus != 0)
+			try
 			{
-				throw std::runtime_error("tar extraction failed for " + tarPath.string());
+				unsigned tid = 0;
+				#ifdef _OPENMP
+				tid = static_cast<unsigned>(omp_get_thread_num());
+				#endif
+				unsigned long long pid = static_cast<unsigned long long>(::getpid());
+				std::filesystem::path tarPath = folderPath / (baseName + "." + std::to_string(pid) + "." + std::to_string(tid) + ".tar.gz");
+				std::filesystem::path extractDir = folderPath / (baseName + "." + std::to_string(pid) + "." + std::to_string(tid) + ".d");
+
+				httpGetToFile(url, tarPath.string());
+
+				if (!std::filesystem::exists(tarPath) || std::filesystem::file_size(tarPath) == 0)
+				{
+					matrix.isValid = false;
+					continue;
+				}
+
+				std::error_code ecMk;
+				std::filesystem::create_directories(extractDir, ecMk);
+				if (ecMk)
+				{
+					matrix.isValid = false;
+					std::error_code ecRmTar;
+					std::filesystem::remove(tarPath, ecRmTar);
+					continue;
+				}
+
+				std::string extractCmd = "tar -xzf \"" + tarPath.string() + "\" -C \"" + extractDir.string() + "\"";
+				int extractStatus = std::system(extractCmd.c_str());
+				if (extractStatus != 0)
+				{
+					matrix.isValid = false;
+					std::error_code ecC1;
+					std::filesystem::remove_all(extractDir, ecC1);
+					std::error_code ecC2;
+					std::filesystem::remove(tarPath, ecC2);
+					continue;
+				}
+
+				std::filesystem::path foundMtx;
+				for (auto it = std::filesystem::recursive_directory_iterator(extractDir), end = std::filesystem::recursive_directory_iterator(); it != end; ++it)
+				{
+					if (!it->is_regular_file())
+					{
+						continue;
+					}
+					const auto& p = it->path();
+					if (p.has_extension() && p.extension() == ".mtx")
+					{
+						foundMtx = p;
+						if (p.filename() == (baseName + ".mtx"))
+						{
+							break;
+						}
+					}
+				}
+
+				if (foundMtx.empty())
+				{
+					matrix.isValid = false;
+					std::error_code ecC1;
+					std::filesystem::remove_all(extractDir, ecC1);
+					std::error_code ecC2;
+					std::filesystem::remove(tarPath, ecC2);
+					continue;
+				}
+
+				std::error_code ecMove;
+				std::filesystem::rename(foundMtx, mtxDestPath, ecMove);
+				if (ecMove)
+				{
+					std::error_code ecCopy;
+					std::filesystem::copy_file(foundMtx, mtxDestPath, std::filesystem::copy_options::overwrite_existing, ecCopy);
+					if (ecCopy)
+					{
+						matrix.isValid = false;
+						std::error_code ecC1;
+						std::filesystem::remove_all(extractDir, ecC1);
+						std::error_code ecC2;
+						std::filesystem::remove(tarPath, ecC2);
+						continue;
+					}
+					std::error_code ecRmSrc;
+					std::filesystem::remove(foundMtx, ecRmSrc);
+				}
+
+				std::error_code ecRmDir;
+				std::filesystem::remove_all(extractDir, ecRmDir);
+				std::error_code ecRmTar;
+				std::filesystem::remove(tarPath, ecRmTar);
 			}
-
-			std::filesystem::path extractedDirPath = folderPath / baseName;
-			std::filesystem::path mtxSourcePath = extractedDirPath / (baseName + ".mtx");
-
-			std::error_code ecMove;
-			std::filesystem::rename(mtxSourcePath, mtxDestPath, ecMove);
-			if (ecMove)
+			catch (...)
 			{
-				throw std::runtime_error("failed to move mtx file: " + ecMove.message());
+				matrix.isValid = false;
 			}
-
-			std::error_code ecRmDir;
-			std::filesystem::remove_all(extractedDirPath, ecRmDir);
-
-			std::error_code ecRmTar;
-			std::filesystem::remove(tarPath, ecRmTar);
 		}
 	}
 
